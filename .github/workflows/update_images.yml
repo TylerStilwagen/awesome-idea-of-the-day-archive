@@ -59,11 +59,10 @@ jobs:
         env:
           IDEABROWSER_EMAIL: ${{ secrets.IDEABROWSER_EMAIL }}
           IDEABROWSER_PASSWORD: ${{ secrets.IDEABROWSER_PASSWORD }}
-          IDEABROWSER_LOGIN_TRIGGER_SELECTOR: "div.hidden:nth-child(2) > div:nth-child(1) > button:nth-child(4)"
-          IDEABROWSER_EMAIL_SELECTOR: "div.hidden:nth-child(2) > div:nth-child(1) > form:nth-child(3) > div:nth-child(1) > div:nth-child(1) > input:nth-child(2)"
-          IDEABROWSER_PASSWORD_SELECTOR: "div.flex-row:nth-child(2) > div:nth-child(1) > input:nth-child(2)"
-          IDEABROWSER_SUBMIT_SELECTOR: "div.hidden:nth-child(2) > div:nth-child(1) > form:nth-child(3) button[type='submit']"
+          # Login page defaults to magic-link; script clicks this to reveal password fields.
+          IDEABROWSER_LOGIN_TRIGGER_TEXT: "Sign in with Password"
         # The screenshot.js script automatically:
+        # - Logs in (password mode) when secrets are set
         # - Scrapes https://www.ideabrowser.com/
         # - Creates archives/year/month/ folder structure
         # - Saves screenshot as "14 July 2025.png" format
