@@ -52,11 +52,16 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # Step 4: Take screenshot of ideabrowser.com
-      # Uses Puppeteer's bundled Chrome (ubuntu-latest has no /usr/bin/google-chrome)
+      # Step 4: Install Google Chrome for more reliable site rendering in CI
+      - name: Install Google Chrome
+        uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+
+      # Step 5: Take screenshot of ideabrowser.com
       - name: Capture daily idea screenshot
         run: node screenshot.js
         env:
+          PUPPETEER_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
           IDEABROWSER_EMAIL: ${{ secrets.IDEABROWSER_EMAIL }}
           IDEABROWSER_PASSWORD: ${{ secrets.IDEABROWSER_PASSWORD }}
           # Login page defaults to magic-link; script clicks this to reveal password fields.
@@ -67,12 +72,21 @@ jobs:
         # - Creates archives/year/month/ folder structure
         # - Saves screenshot as "14 July 2025.png" format
 
-      # Step 5: Commit and push changes
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-debug
+          path: archives/_debug/
+          if-no-files-found: ignore
+
+      # Step 6: Commit and push changes
       - name: Commit updated archives
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
           git add archives/
+          git reset -- archives/_debug/ || true
           # Commit with date stamp for tracking
           git commit -m "📸 Daily idea archive: $(date +'%d %B %Y') [skip screenshot]" || echo "No changes to commit"
           git push

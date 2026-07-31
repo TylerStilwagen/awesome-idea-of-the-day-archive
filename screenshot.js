@@ -190,24 +190,98 @@ async function passwordFieldVisible(page, timeout = 2500) {
   }
 }
 
-async function openPasswordLogin(page) {
-  // Wait for the login card to hydrate (page has duplicate mobile/desktop trees).
-  await page.waitForFunction(() => {
-    return [...document.querySelectorAll('button')].some(el => {
-      const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
-      const style = window.getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      return (
-        text === 'Sign in with Password' &&
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        rect.width > 0 &&
-        rect.height > 0
-      );
-    });
-  }, { timeout: 15000 });
+async function dumpPageDebug(page, label) {
+  const debugDir = path.join('archives', '_debug');
+  if (!fs.existsSync(debugDir)) {
+    fs.mkdirSync(debugDir, { recursive: true });
+  }
 
-  if (await passwordFieldVisible(page, 500)) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const screenshotPath = path.join(debugDir, `${stamp}-${label}.png`);
+  const textPath = path.join(debugDir, `${stamp}-${label}.txt`);
+
+  try {
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+  } catch (error) {
+    console.log(`Debug screenshot failed: ${error.message}`);
+  }
+
+  const details = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('button, a, [role="button"]')].map(el => {
+      const rect = el.getBoundingClientRect();
+      return {
+        text: (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+        type: el.getAttribute('type'),
+        href: el.getAttribute('href'),
+        w: Math.round(rect.width),
+        h: Math.round(rect.height)
+      };
+    });
+    return {
+      url: location.href,
+      title: document.title,
+      bodyText: (document.body && document.body.innerText ? document.body.innerText : '').slice(0, 4000),
+      buttons
+    };
+  }).catch(error => ({ error: error.message }));
+
+  fs.writeFileSync(textPath, JSON.stringify(details, null, 2));
+  console.log(`Saved debug artifacts: ${screenshotPath} and ${textPath}`);
+}
+
+async function waitForLoginUi(page) {
+  const deadline = Date.now() + 45000;
+  while (Date.now() < deadline) {
+    const state = await page.evaluate(() => {
+      const normalize = value => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const buttons = [...document.querySelectorAll('button')].map(el => {
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return {
+          text: normalize(el.innerText || el.textContent || ''),
+          type: el.getAttribute('type'),
+          visible:
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            rect.width > 0 &&
+            rect.height > 0
+        };
+      });
+      const body = normalize(document.body ? document.body.innerText : '');
+      return {
+        url: location.href,
+        hasWelcome: body.includes('welcome back'),
+        hasPasswordTrigger: buttons.some(
+          button => button.visible && button.text.includes('sign in with password') && button.type !== 'submit'
+        ),
+        hasPasswordInput: [...document.querySelectorAll('input[type="password"]')].some(el => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }),
+        title: document.title,
+        buttonSample: buttons.filter(b => b.visible).slice(0, 12)
+      };
+    });
+
+    console.log(
+      `Login UI poll: url=${state.url} welcome=${state.hasWelcome} trigger=${state.hasPasswordTrigger} passwordInput=${state.hasPasswordInput}`
+    );
+
+    if (state.hasPasswordInput || state.hasPasswordTrigger) {
+      return state;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  await dumpPageDebug(page, 'login-ui-timeout');
+  throw new Error('Timed out waiting for Ideabrowser login UI to appear.');
+}
+
+async function openPasswordLogin(page) {
+  const ui = await waitForLoginUi(page);
+
+  if (ui.hasPasswordInput || (await passwordFieldVisible(page, 500))) {
     console.log('Password form already visible.');
     return;
   }
@@ -229,6 +303,7 @@ async function openPasswordLogin(page) {
     preferNonSubmit: true
   });
   if (triggerButtons.length === 0) {
+    await dumpPageDebug(page, 'missing-password-trigger');
     throw new Error(`Could not find visible button with text: ${LOGIN_TRIGGER_TEXT}`);
   }
 
@@ -252,6 +327,7 @@ async function openPasswordLogin(page) {
   }
 
   if (!opened) {
+    await dumpPageDebug(page, 'password-form-missing');
     throw new Error('Password form did not appear after clicking login trigger.');
   }
 }
@@ -267,11 +343,18 @@ async function loginIfNeeded(page) {
 
   console.log('Navigating to login page...');
   await page.goto(LOGIN_URL, {
-    waitUntil: 'networkidle2',
-    timeout: 30000
+    waitUntil: 'domcontentloaded',
+    timeout: 60000
   });
+  // Give the SPA time to hydrate after first paint.
+  await new Promise(resolve => setTimeout(resolve, 3000));
 
-  await openPasswordLogin(page);
+  try {
+    await openPasswordLogin(page);
+  } catch (error) {
+    await dumpPageDebug(page, 'login-failed');
+    throw error;
+  }
 
   const emailSelector = await resolveSelector(
     page,
