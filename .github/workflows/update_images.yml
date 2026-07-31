@@ -15,8 +15,8 @@ on:
     # │ │ │ │ │
     # │ │ │ │ │
     # * * * * *
-    - cron: '0 0 * * *'  
-  
+    - cron: '0 0 * * *'
+
   # Optional: Also trigger on push to specific branches
   push:
     branches:
@@ -24,6 +24,12 @@ on:
       # Add more branches here if needed:
       # - develop
       # - staging
+
+  # Manual test runs from the Actions tab or `gh workflow run`
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   screenshot:
@@ -34,26 +40,24 @@ jobs:
     steps:
       # Step 1: Checkout code
       - name: Checkout repository
-        uses: actions/checkout@v3
-        # Optional: Include all history and tags
-        # with:
-        #   fetch-depth: 0
+        uses: actions/checkout@v4
 
       # Step 2: Setup Node.js
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
 
       # Step 3: Install dependencies
       - name: Install dependencies
         run: npm install
 
       # Step 4: Take screenshot of ideabrowser.com
+      # Uses Puppeteer's bundled Chrome (ubuntu-latest has no /usr/bin/google-chrome)
       - name: Capture daily idea screenshot
         run: node screenshot.js
         env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
           IDEABROWSER_EMAIL: ${{ secrets.IDEABROWSER_EMAIL }}
           IDEABROWSER_PASSWORD: ${{ secrets.IDEABROWSER_PASSWORD }}
           IDEABROWSER_LOGIN_TRIGGER_SELECTOR: "div.hidden:nth-child(2) > div:nth-child(1) > button:nth-child(4)"
@@ -65,12 +69,6 @@ jobs:
         # - Creates archives/year/month/ folder structure
         # - Saves screenshot as "14 July 2025.png" format
 
-      # Optional: Add custom processing steps
-      # - name: Process screenshot
-      #   run: |
-      #     # Add image processing commands
-      #     # Example: compress, resize, etc.
-
       # Step 5: Commit and push changes
       - name: Commit updated archives
         run: |
@@ -80,19 +78,3 @@ jobs:
           # Commit with date stamp for tracking
           git commit -m "📸 Daily idea archive: $(date +'%d %B %Y') [skip screenshot]" || echo "No changes to commit"
           git push
-
-      # Optional: Create artifact for debugging
-      # - name: Upload screenshot as artifact
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: daily-screenshots
-      #     path: archives/
-      #     retention-days: 7
-
-      # Optional: Send notifications
-      # - name: Send notification
-      #   if: always()
-      #   uses: some-notification-action@v1
-      #   with:
-      #     status: ${{ job.status }}
-      #     webhook: ${{ secrets.WEBHOOK_URL }} 
